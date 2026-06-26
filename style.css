@@ -1,0 +1,97 @@
+* { 
+    box-sizing: border-box; 
+}
+
+body {
+    margin: 0; padding: 0;
+    display: flex;
+    height: 100vh;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #1e1e1e; color: #fff;
+    overflow: hidden;
+}
+
+#sidebar {
+    width: 380px;
+    background: #252526;
+    border-right: 1px solid #3c3c3c;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    gap: 15px;
+    overflow-y: auto;
+    z-index: 10;
+}
+
+.panel-title { 
+    margin: 0 0 8px 0; font-size: 14px; 
+    color: #007acc; text-transform: uppercase; letter-spacing: 0.5px; 
+}
+
+.cards-list { display: flex; flex-direction: column; gap: 12px; }
+
+.sprite-card {
+    background: #2d2d30;
+    border: 1px solid #3f3f46;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+.sprite-card.base-card { border-left: 4px solid #007acc; }
+.sprite-card.custom-card { border-left: 4px solid #28a745; }
+
+/* Блок с миниатюрой */
+.thumb-container {
+    width: 50px; height: 50px;
+    background: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex; justify-content: center; align-items: center;
+    flex-shrink: 0;
+}
+.thumb-img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.card-content { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.card-header { font-weight: bold; font-size: 13px; color: #e0e0e0; display: flex; justify-content: space-between; }
+.card-body { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+
+.input-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.input-row label { color: #aaaaaa; font-size: 12px; }
+
+input[type="file"] { font-size: 11px; color: #ccc; width: 100%; }
+
+.volume-controls { display: flex; align-items: center; gap: 6px; width: 65%; }
+input[type="range"] { flex: 1; accent-color: #007acc; }
+#custom-cards input[type="range"] { accent-color: #28a745; }
+.vol-val { width: 35px; text-align: right; font-family: monospace; font-size: 12px; }
+
+.btn {
+    background: #007acc; color: white; border: none; padding: 10px; width: 100%;
+    border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px;
+}
+.btn:hover { background: #0062a3; }
+.btn.active { background: #d9534f; } /* Красная кнопка выключения */
+.btn.active:hover { background: #c9302c; }
+
+.btn-add { background: #28a745; }
+.btn-add:hover { background: #218838; }
+.btn-delete { background: none; color: #ff4d4d; border: none; cursor: pointer; font-size: 11px; padding: 0; }
+.btn-delete:hover { text-decoration: underline; }
+
+#render-zone {
+    flex: 1; background-color: #00ff00;
+    position: relative; display: flex; justify-content: center; align-items: center;
+}
+
+#avatar {
+    max-height: 85vh; max-width: 85vw;
+    object-fit: contain; display: block; user-select: none;
+    transition: transform 0.1s ease; /* Для плавного изменения размера */
+}
+
+.vol-bar-container { background: #3e3e42; height: 4px; border-radius: 2px; overflow: hidden; margin-top: 5px; }
+#vol-bar { background: #007acc; height: 100%; width: 0%; }
+.status-text { color: #28a745; font-size: 11px; font-weight: bold; margin-top: 2px; display: block; }

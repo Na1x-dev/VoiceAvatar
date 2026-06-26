@@ -1,0 +1,317 @@
+// Базовые карточки теперь включают порог громкости (кроме моргания)
+const baseStates = {
+    mouthClosed: { name: "1. Рот закрыт (Покой)", img: null },
+    mouthOpen:   { name: "2. Рот открыт (Говорение)", img: null, threshold: 20 },
+    blink:       { name: "3. Моргание (Глаза)", img: null }
+};
+
+let customStates = [];
+let globalAvatarSize = 85; // Размер по умолчанию (%)
+
+let isSpeaking = false;       
+let isBlinkingNow = false;    
+let mouthToggle = false;      
+
+// Переменные аудиопотока
+let audioStream = null;
+let audioContext = null;
+let animationId = null;
+
+const baseContainer = document.getElementById('base-cards');
+const customContainer = document.getElementById('custom-cards');
+const avatarImg = document.getElementById('avatar');
+const volBar = document.getElementById('vol-bar');
+const sizeSlider = document.getElementById('size-slider');
+const sizeVal = document.getElementById('size-val');
+const startBtn = document.getElementById('start-btn');
+
+// --- ИНИЦИАЛИЗАЦИЯ ИНТЕРФЕЙСА И РАЗМЕРА ---
+sizeSlider.addEventListener('input', async (e) => {
+    globalAvatarSize = parseInt(e.target.value);
+    sizeVal.innerText = globalAvatarSize + '%';
+    avatarImg.style.transform = `scale(${globalAvatarSize / 100})`;
+    await saveToDB();
+});
+
+// --- INDEXEDDB СИСТЕМНОЕ ХРАНИЛИЩЕ ---
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("PNGTuberStudioDB", 4);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings");
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+    });
+}
+
+async function saveToDB() {
+    try {
+        const db = await openDB();
+        const tx = db.transaction("settings", "readwrite");
+        const store = tx.objectStore("settings");
+        store.put(JSON.parse(JSON.stringify(baseStates)), "baseStates");
+        store.put(JSON.parse(JSON.stringify(customStates)), "customStates");
+        store.put(globalAvatarSize, "avatarSize");
+    } catch (err) { console.error("Ошибка сохранения в БД:", err); }
+}
+
+async function loadFromDB() {
+    try {
+        const db = await openDB();
+        const tx = db.transaction("settings", "readonly");
+        const store = tx.objectStore("settings");
+        
+        store.get("avatarSize").onsuccess = (e) => {
+            if (e.target.result) {
+                globalAvatarSize = e.target.result;
+                sizeSlider.value = globalAvatarSize;
+                sizeVal.innerText = globalAvatarSize + '%';
+                avatarImg.style.transform = `scale(${globalAvatarSize / 100})`;
+            }
+        };
+
+        store.get("baseStates").onsuccess = (e) => {
+            if (e.target.result) {
+                Object.keys(e.target.result).forEach(key => {
+                    if (baseStates[key]) {
+                        baseStates[key].img = e.target.result[key].img;
+                        if (e.target.result[key].threshold !== undefined) {
+                            baseStates[key].threshold = e.target.result[key].threshold;
+                        }
+                    }
+                });
+                renderBaseCards();
+                if (baseStates.mouthClosed.img) avatarImg.src = baseStates.mouthClosed.img;
+            }
+        };
+        
+        store.get("customStates").onsuccess = (e) => {
+            if (e.target.result) { customStates = e.target.result; renderCustomCards(); }
+        };
+    } catch (err) { console.error("Ошибка загрузки из БД:", err); }
+}
+
+// Заглушка миниатюры
+const emptyThumb = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='50' height='50'><rect width='50' height='50' fill='%231e1e1e'/></svg>";
+
+function renderBaseCards() {
+    baseContainer.innerHTML = '';
+    Object.keys(baseStates).forEach(key => {
+        const state = baseStates[key];
+        const card = document.createElement('div');
+        card.className = 'sprite-card base-card';
+        card.innerHTML = `
+            <div class="thumb-container">
+                <img class="thumb-img" id="thumb-base-${key}" src="${state.img || emptyThumb}">
+            </div>
+            <div class="card-content">
+                <div class="card-header">${state.name}</div>
+                <div class="card-body">
+                    <input type="file" accept="image/*" onchange="uploadBaseImage(event, '${key}')">
+                    ${state.threshold !== undefined ? `
+                        <div class="input-row">
+                            <label>Порог активации:</label>
+                            <div class="volume-controls">
+                                <input type="range" min="1" max="255" value="${state.threshold}" oninput="updateBaseThreshold('${key}', this.value)">
+                                <span class="vol-val" id="vol-base-val-${key}">${state.threshold}</span>
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${state.img ? `<span class="status-text">✓ Сохранено</span>` : ''}
+                </div>
+            </div>
+        `;
+        baseContainer.appendChild(card);
+    });
+}
+
+function renderCustomCards() {
+    customContainer.innerHTML = '';
+    customStates.forEach((state, index) => {
+        const card = document.createElement('div');
+        card.className = 'sprite-card custom-card';
+        card.innerHTML = `
+            <div class="thumb-container">
+                <img class="thumb-img" id="thumb-custom-${index}" src="${state.img || emptyThumb}">
+            </div>
+            <div class="card-content">
+                <div class="card-header">
+                    <span>${state.name}</span>
+                    <button class="btn-delete" onclick="deleteCustomCard(${index})">Удалить</button>
+                </div>
+                <div class="card-body">
+                    <input type="file" accept="image/*" onchange="uploadCustomImage(event, ${index})">
+                    <div class="input-row">
+                        <label>Порог громкости:</label>
+                        <div class="volume-controls">
+                            <input type="range" min="1" max="255" value="${state.threshold}" oninput="updateCustomProp(${index}, this.value)">
+                            <span class="vol-val" id="vol-val-${index}">${state.threshold}</span>
+                        </div>
+                    </div>
+                    ${state.img ? `<span class="status-text">✓ Сохранено</span>` : ''}
+                </div>
+            </div>
+        `;
+        customContainer.appendChild(card);
+    });
+}
+// --- ОБРАБОТЧИКИ ЗАГРУЗОК И ПОЛЗУНКОВ ---
+window.uploadBaseImage = function(event, key) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        baseStates[key].img = e.target.result;
+        document.getElementById(`thumb-base-${key}`).src = e.target.result;
+        if (key === 'mouthClosed') avatarImg.src = e.target.result;
+        renderBaseCards();
+        await saveToDB(); 
+    };
+    reader.readAsDataURL(file);
+};
+
+window.uploadCustomImage = function(event, index) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        customStates[index].img = e.target.result;
+        document.getElementById(`thumb-custom-${index}`).src = e.target.result;
+        renderCustomCards();
+        await saveToDB(); 
+    };
+    reader.readAsDataURL(file);
+};
+
+window.updateBaseThreshold = async function(key, value) {
+    baseStates[key].threshold = parseInt(value);
+    document.getElementById(`vol-base-val-${key}`).innerText = value;
+    await saveToDB();
+};
+
+window.updateCustomProp = async function(index, value) {
+    customStates[index].threshold = parseInt(value);
+    document.getElementById(`vol-val-${index}`).innerText = value;
+    await saveToDB(); 
+};
+
+window.deleteCustomCard = async function(index) {
+    customStates.splice(index, 1);
+    renderCustomCards();
+    await saveToDB();
+};
+
+document.getElementById('add-card-btn').addEventListener('click', async () => {
+    const name = prompt("Название активности (например: Крик, Смех):", "Новая активность");
+    if (!name) return;
+    customStates.push({ name: name, img: null, threshold: 60 });
+    renderCustomCards();
+    await saveToDB();
+});
+
+// --- ТАЙМЕРЫ АНИМАЦИИ ---
+setInterval(() => {
+    mouthToggle = isSpeaking ? !mouthToggle : false;
+}, 120); 
+
+function startBlinkLoop() {
+    if (!audioStream) return; // Остановить моргание, если микрофон выключен
+    setTimeout(() => {
+        isBlinkingNow = true;
+        setTimeout(() => {
+            isBlinkingNow = false;
+            startBlinkLoop(); 
+        }, 150); 
+    }, Math.random() * 3000 + 2000);
+}
+
+// --- ФУНКЦИЯ ОСТАНОВКИ МИКРОФОНА ---
+function stopMicrophone() {
+    if (animationId) cancelAnimationFrame(animationId);
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+    }
+    if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+    }
+    isSpeaking = false;
+    isBlinkingNow = false;
+    volBar.style.width = '0%';
+    startBtn.innerText = "🎙 Включить микрофон";
+    startBtn.className = "btn"; // Убираем класс active
+    if (baseStates.mouthClosed.img) avatarImg.src = baseStates.mouthClosed.img;
+}
+
+// --- ПЕРЕКЛЮЧАТЕЛЬ РАБОТЫ МИКРОФОНА ---
+startBtn.addEventListener('click', async () => {
+    if (audioStream) {
+        stopMicrophone();
+        return;
+    }
+
+    try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(audioStream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        startBtn.innerText = "🛑 Выключить микрофон";
+        startBtn.className = "btn active"; // Делаем кнопку красной
+        
+        startBlinkLoop();
+
+        function updateFrame() {
+            if (!audioStream) return; // Прерываем цикл, если выключили
+
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+            let volume = Math.round(sum / dataArray.length);
+            
+            volBar.style.width = Math.min((volume / 150) * 100, 100) + '%';
+            
+            // Берем порог из ползунка базовой карточки говорения
+            const currentThreshold = baseStates.mouthOpen.threshold || 20;
+            isSpeaking = volume > currentThreshold;
+
+            // Сортируем кастомные карточки
+            let activeCustomList = customStates.filter(s => volume >= s.threshold && s.img);
+            activeCustomList.sort((a, b) => b.threshold - a.threshold);
+            let activeCustom = activeCustomList.length > 0 ? activeCustomList[0] : null;
+
+            let finalImgSrc = null;
+
+            if (activeCustom) {
+                // Если сработала эмоция, во время моргания всё равно подменяем на закрытые глаза
+                finalImgSrc = isBlinkingNow ? (baseStates.blink.img || activeCustom.img) : activeCustom.img;
+            } else {
+                if (isBlinkingNow) {
+                    finalImgSrc = baseStates.blink.img || baseStates.mouthClosed.img;
+                } else if (isSpeaking) {
+                    finalImgSrc = mouthToggle ? (baseStates.mouthOpen.img || baseStates.mouthClosed.img) : baseStates.mouthClosed.img;
+                } else {
+                    finalImgSrc = baseStates.mouthClosed.img;
+                }
+            }
+
+            if (finalImgSrc) avatarImg.src = finalImgSrc;
+            animationId = requestAnimationFrame(updateFrame);
+        }
+        updateFrame();
+    } catch (err) {
+        alert('Ошибка доступа к микрофону: ' + err);
+        stopMicrophone();
+    }
+});
+
+// Запуск инициализации приложения
+renderBaseCards();
+renderCustomCards();
+loadFromDB();
