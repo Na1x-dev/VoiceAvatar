@@ -243,3 +243,10 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
 .modal-card input[type="text"]:focus { border-color: #987bff; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; }
 .modal-actions .btn { padding: 10px 20px; font-size: 13px; }
+
+
+.buttons-container{
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
